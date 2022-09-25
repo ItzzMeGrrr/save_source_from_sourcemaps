@@ -1,1 +1,5 @@
 colorama
+validators
+requests
+sourcemap
+bs4
