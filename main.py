@@ -3,6 +3,7 @@ from glob import glob
 from json import JSONDecodeError
 import os
 import re
+from urllib.parse import urlparse
 import requests
 from colorama import Fore
 import validators
@@ -15,15 +16,21 @@ OUT = Fore.GREEN
 RESET = Fore.RESET
 
 
-parser = argparse.ArgumentParser("Download code from source maps.")
+parser = argparse.ArgumentParser(description="Download code from source maps.")
 
 parser.add_argument("-u", "--url", help="URL of the site", required=True)
 parser.add_argument("-q", "--quit", help="Suppress output", action="store_true")
 parser.add_argument(
-    "-o", "--output", help="Output the files to given path", dest="path"
+    "-o",
+    "--output",
+    help="Output the files to given path (default=src_<domain>)",
+    dest="path",
 )
 parser.add_argument(
-    "-s", "--styles", help="Download stylesheets as well", action="store_true"
+    "-s",
+    "--styles",
+    help="Download stylesheets (CSS) as well (default=off)",
+    action="store_true",
 )
 args = parser.parse_args()
 
@@ -92,10 +99,12 @@ def get_all_files(res):
     css_files = []
     for line in res.split("\n"):
         for file in re.findall('"([\-./:@a-zA-Z0-9]*\.js)"', line):
-            js_files.append(file)
+            if file not in js_files:
+                js_files.append(file)
         if styles:
             for file in re.findall('"([\-./:@a-zA-Z0-9]*\.css)"', line):
-                css_files.append(file)
+                if file not in css_files:
+                    css_files.append(file)
 
     if not js_files and not css_files:
         custom_print(f"No file links found in response from '{url}'", ERR, True)
@@ -118,17 +127,32 @@ def get_source_maps_list(url):
     Returns:
         `list`: list of valid sourcemap urls
     """
+    global styles
     res = requests.get(url)
     files = get_all_files(res.text)
+    custom_print("==== JS ====")
     for file in files.get("js"):
         print(file)
+    if styles:
+        custom_print("==== CSS ====")
+        for file in files.get("css"):
+            print(file)
+    # TODO: find the sourceMappingUrl from all the files
+
+
+def generate_path(url):
+    return f"src_{urlparse(url).netloc}"
 
 
 if __name__ == "__main__":
     """Main function"""
     url = args.__getattribute__("url")
     quit = args.__getattribute__("quit")
-    output_dir = args.__getattribute__("path")
+    if args.__getattribute__("path"):
+        output_dir = args.__getattribute__("path")
+    else:
+        output_dir = generate_path(url)
+
     styles = args.__getattribute__("styles")
 
     validate_url(url)
