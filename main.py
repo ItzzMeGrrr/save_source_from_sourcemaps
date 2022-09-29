@@ -1,5 +1,4 @@
 import argparse
-from glob import glob
 from json import JSONDecodeError
 import os
 import re
@@ -91,7 +90,7 @@ def get_all_files(res):
     Returns:
         `dict`: js and css file dict with respective keys
     """
-    # TODO: also try to get all script, link and a tags links using bs4
+    # TODO: also try to get all script, link tags links using bs4
     # TODO: because some links might be resource file but not have extension
     global styles
     files_list = {}
@@ -118,8 +117,8 @@ def get_all_files(res):
     return files_list
 
 
-def get_source_maps_list(url):
-    """Get sourcemap url list of files linked in `url` response
+def get_source_maps_list(baseurl):
+    """Get sourcemap url `list` of files linked in `baseurl`'s response
 
     Args:
         `url` (`str`): the URL
@@ -128,20 +127,83 @@ def get_source_maps_list(url):
         `list`: list of valid sourcemap urls
     """
     global styles
-    res = requests.get(url)
+    res = requests.get(baseurl)
     files = get_all_files(res.text)
     custom_print("==== JS ====")
+    found_js_sourcemaps = []
     for file in files.get("js"):
-        print(file)
+        js_file = requests.get(baseurl + file).text
+        for match in re.findall("//# sourceMappingURL=(.*\.map)", js_file):
+            found_js_sourcemaps.append(match)
     if styles:
+        found_css_sourcemaps = []
         custom_print("==== CSS ====")
-        for file in files.get("css"):
-            print(file)
-    # TODO: find the sourceMappingUrl from all the files
+        for match in re.findall("//# sourceMappingURL=(.*\.map)", js_file):
+            found_css_sourcemaps.append(match)
+        return found_js_sourcemaps, found_css_sourcemaps
+    return found_js_sourcemaps
 
 
-def generate_path(url):
+def generate_output_path(url):
+    """Returns path generated based on given `url`
+
+    Args:
+        `url` (`str`): the URL
+
+    Returns:
+        `str`: path name
+    """
     return f"src_{urlparse(url).netloc}"
+
+
+def dump_sm_json(sourcemap, out_dir):
+    """Takes sourcemap json and dumps the containing files into give directory
+
+    Args:
+        `sourcemap` (`json`): sourcemap json content
+        `out_dir` (`str`): output path
+    """
+    # TODO: parse and save sourcemap
+    pass
+
+
+def handle_sourcemaps(base_url, out_dir, js_sourcemaps, css_sourcemaps):
+    """Takes sourcemaps list and dumps files into appropriate directory structure
+
+    Args:
+        `base_url` (`str`): the URL
+        `out_dir` (`str`): the output dir
+        `js_sourcemaps` (`list`): js sourcemaps list
+        `css_sourcemaps` (`list`): css sourcemaps list
+
+    Returns:
+        `None`: `None`
+    """
+    for js_sm in js_sourcemaps:
+        try:
+            if not str(js_sm).startswith(
+                "http"
+            ):  # it might start with http when its stored on different server or something
+                sm_json = requests.get(base_url + js_sm).json()
+            else:
+                sm_json = requests.get(js_sm).json()
+            dump_sm_json(sm_json, out_dir)
+
+        except JSONDecodeError:
+            custom_print(f"'{js_sm}' does not seem to return JSON response", ERR)
+    if styles:
+        for css_sm in js_sourcemaps:
+            try:
+                if not str(css_sm).startswith(
+                    "http"
+                ):  # it might start with http when its stored on different server or something
+                    sm_json = requests.get(base_url + css_sm).json()
+                else:
+                    sm_json = requests.get(css_sm).json()
+                dump_sm_json(sm_json, out_dir)
+
+            except JSONDecodeError:
+                custom_print(f"'{css_sm}' does not seem to return JSON response", ERR)
 
 
 if __name__ == "__main__":
@@ -151,10 +213,18 @@ if __name__ == "__main__":
     if args.__getattribute__("path"):
         output_dir = args.__getattribute__("path")
     else:
-        output_dir = generate_path(url)
+        output_dir = generate_output_path(url)
 
     styles = args.__getattribute__("styles")
 
     validate_url(url)
     validate_dir(output_dir)
-    get_source_maps_list(url)
+    js_sourcemap = []
+    css_sourcemaps = []
+    if styles:
+        js_sourcemap, css_sourcemaps = get_source_maps_list(url)
+    else:
+        js_sourcemap = get_source_maps_list(url)
+
+    handle_sourcemaps(url, output_dir, js_sourcemap, css_sourcemaps)
+    # TODO: clean up the function above
