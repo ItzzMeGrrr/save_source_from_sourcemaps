@@ -1,12 +1,14 @@
 import argparse
-from json import JSONDecodeError
+import errno
 import os
 import re
+from json import JSONDecodeError
 from urllib.parse import urlparse
+
 import requests
-from colorama import Fore
+import sourcemap
 import validators
-import errno
+from colorama import Fore
 
 INFO = Fore.CYAN
 WARN = Fore.YELLOW
@@ -17,20 +19,21 @@ RESET = Fore.RESET
 
 parser = argparse.ArgumentParser(description="Download code from source maps.")
 
-parser.add_argument("-u", "--url", help="URL of the site", required=True)
-parser.add_argument("-q", "--quit", help="Suppress output", action="store_true")
 parser.add_argument(
     "-o",
     "--output",
-    help="Output the files to given path (default=src_<domain>)",
+    help="Output the files to given path (default=./src_<domain>)",
     dest="path",
 )
+parser.add_argument("-q", "--quit", help="Suppress output", action="store_true")
 parser.add_argument(
     "-s",
     "--styles",
     help="Download stylesheets (CSS) as well (default=off)",
     action="store_true",
 )
+parser.add_argument("-u", "--url", help="URL of the site", required=True)
+parser.add_argument("-v", "--verbose", help="Print verbose output", action="store_true")
 args = parser.parse_args()
 
 
@@ -44,6 +47,7 @@ def custom_print(text, color=OUT, quit_override=False, end="\n"):
         end (`str`, optional): end param of the print fucntion. Defaults to "`\\n`".
     """
     if not quit or quit_override:
+        # TODO: fix \t issue
         if color == OUT:
             text = f"[+] {text}"
         if color == ERR:
@@ -81,7 +85,7 @@ def validate_dir(dir):
                 exit(errno.ENOTEMPTY)
 
 
-def get_all_files(res):
+def get_all_files(base_url):
     """Get js and css file dict from html response
 
     Args:
@@ -94,15 +98,46 @@ def get_all_files(res):
     # TODO: because some links might be resource file but not have extension
     global styles
     files_list = {}
+    res = requests.get(base_url).text
     js_files = []
     css_files = []
+    if verbose:
+        custom_print("==== Found JS/CSS File ====", INFO)
     for line in res.split("\n"):
         for file in re.findall('"([\-./:@a-zA-Z0-9]*\.js)"', line):
             if file not in js_files:
+                if verbose:
+                    custom_print(f"{file}")
+                if not file.startswith("http"):
+                    if file.startswith("/"):
+                        if base_url.endswith("/"):
+                            file = f"{base_url[:-1]}{file}"
+                        else:
+                            file = f"{base_url}{file}"
+                    else:
+                        if base_url.endswith("/"):
+                            file = f"{base_url[:-1]}{file}"
+                        else:
+                            file = f"{base_url}{file}"
                 js_files.append(file)
+
         if styles:
             for file in re.findall('"([\-./:@a-zA-Z0-9]*\.css)"', line):
                 if file not in css_files:
+                    if verbose:
+                        custom_print(f"{file}")
+                    if not file.startswith("http"):
+                        if file.startswith("/"):
+                            if base_url.endswith("/"):
+                                file = f"{base_url[:-1]}{file}"
+                            else:
+                                file = f"{base_url}{file}"
+                        else:
+                            if base_url.endswith("/"):
+                                file = f"{base_url[:-1]}{file}"
+                            else:
+                                file = f"{base_url}{file}"
+
                     css_files.append(file)
 
     if not js_files and not css_files:
@@ -117,6 +152,44 @@ def get_all_files(res):
     return files_list
 
 
+def get_source_map_urls(base_url, files, ext):
+    """return all sourcemap urls from `files` of type `ext`
+
+    Args:
+        base_url (`str`): the url
+        files (`list`): list of file url to find sourcemap in
+        ext (`str`): extension of the file to find sourcemap for
+
+    Returns:
+        `list`: list of found sourcemap urls
+    """
+    found_sourcemaps = []
+    for file in files:
+        if verbose:
+            custom_print(f"Finding sourcemaps in: {file}", INFO)
+        css_file = requests.get(file).text
+        for match in re.findall(f"//# sourceMappingURL=(.*\.{ext}\.map)", css_file):
+            if verbose:
+                custom_print(f"\tFound map: {match}")
+            url = base_url
+            if not file.startswith(base_url):
+                # TODO: fix this different server file issue
+                url = f"http://{urlparse(file).hostname}"
+            if not match.startswith("http"):
+                if match.startswith("/"):
+                    if url.endswith("/"):
+                        match = f"{url[:-1]}{match}"
+                    else:
+                        match = f"{url}{match}"
+                else:
+                    if url.endswith("/"):
+                        match = f"{url}{match}"
+                    else:
+                        match = f"{url}/{match}"
+            found_sourcemaps.append(match)
+    return found_sourcemaps
+
+
 def get_source_maps_list(baseurl):
     """Get sourcemap url `list` of files linked in `baseurl`'s response
 
@@ -127,19 +200,17 @@ def get_source_maps_list(baseurl):
         `list`: list of valid sourcemap urls
     """
     global styles
-    res = requests.get(baseurl)
-    files = get_all_files(res.text)
-    custom_print("==== JS ====")
-    found_js_sourcemaps = []
-    for file in files.get("js"):
-        js_file = requests.get(baseurl + file).text
-        for match in re.findall("//# sourceMappingURL=(.*\.map)", js_file):
-            found_js_sourcemaps.append(match)
+    global verbose
+    files = get_all_files(baseurl)
+    if verbose:
+        custom_print("==== Found JS sourcemaps ====", INFO)
+    found_js_sourcemaps = get_source_map_urls(baseurl, files.get("js"), "js")
+
     if styles:
-        found_css_sourcemaps = []
-        custom_print("==== CSS ====")
-        for match in re.findall("//# sourceMappingURL=(.*\.map)", js_file):
-            found_css_sourcemaps.append(match)
+        if verbose:
+            custom_print("==== Found CSS sourcemaps ====", INFO)
+        found_css_sourcemaps = get_source_map_urls(baseurl, files.get("css"), "css")
+
         return found_js_sourcemaps, found_css_sourcemaps
     return found_js_sourcemaps
 
@@ -156,15 +227,41 @@ def generate_output_path(url):
     return f"src_{urlparse(url).netloc}"
 
 
-def dump_sm_json(sourcemap, out_dir):
-    """Takes sourcemap json and dumps the containing files into give directory
+def get_json_res(sm_path, base_url):
+    """fetches and returns json response from `sm_path`
+
+    Args:
+        `sm_path` (`str`): path/url to sourcemap
+        `base_url` (`str`): the base url
+
+    Returns:
+        `json`: json content from `sm_path`
+    """
+    if not str(sm_path).startswith(
+        "http"
+    ):  # it might start with http when its not relative path (not stored on the same server)
+        custom_print(f"{sm_path}, {base_url}", ERR)
+        res = requests.get(base_url + sm_path)
+        res.json()
+        sm_json = res.text
+    else:
+        res = requests.get(sm_path)
+        res.json()
+        sm_json = res.text
+    return sm_json
+
+
+def dump_sm_json(sm, out_dir):
+    """Takes sourcemap json and dumps the containing files into given directory
 
     Args:
         `sourcemap` (`json`): sourcemap json content
         `out_dir` (`str`): output path
     """
-    # TODO: parse and save sourcemap
-    pass
+    sm_content = sourcemap.loads(sm)
+    custom_print(sm_content.sources, INFO)
+    # TODO: continue, dump files
+    exit(1)
 
 
 def handle_sourcemaps(base_url, out_dir, js_sourcemaps, css_sourcemaps):
@@ -181,27 +278,19 @@ def handle_sourcemaps(base_url, out_dir, js_sourcemaps, css_sourcemaps):
     """
     for js_sm in js_sourcemaps:
         try:
-            if not str(js_sm).startswith(
-                "http"
-            ):  # it might start with http when its stored on different server or something
-                sm_json = requests.get(base_url + js_sm).json()
-            else:
-                sm_json = requests.get(js_sm).json()
+            sm_json = get_json_res(js_sm, base_url)
+            if verbose:
+                custom_print(f"===== Dumping {js_sm} =====")
             dump_sm_json(sm_json, out_dir)
-
         except JSONDecodeError:
             custom_print(f"'{js_sm}' does not seem to return JSON response", ERR)
     if styles:
         for css_sm in js_sourcemaps:
             try:
-                if not str(css_sm).startswith(
-                    "http"
-                ):  # it might start with http when its stored on different server or something
-                    sm_json = requests.get(base_url + css_sm).json()
-                else:
-                    sm_json = requests.get(css_sm).json()
+                sm_json = get_json_res(css_sm, base_url)
+                if verbose:
+                    custom_print(f"===== Dumping {css_sm} =====")
                 dump_sm_json(sm_json, out_dir)
-
             except JSONDecodeError:
                 custom_print(f"'{css_sm}' does not seem to return JSON response", ERR)
 
@@ -210,13 +299,17 @@ if __name__ == "__main__":
     """Main function"""
     url = args.__getattribute__("url")
     quit = args.__getattribute__("quit")
+    verbose = args.__getattribute__("verbose")
     if args.__getattribute__("path"):
         output_dir = args.__getattribute__("path")
     else:
         output_dir = generate_output_path(url)
 
     styles = args.__getattribute__("styles")
-
+    if verbose:
+        custom_print("Using following options: ", INFO)
+        for arg in args._get_args():
+            custom_print(f"{arg}", INFO)
     validate_url(url)
     validate_dir(output_dir)
     js_sourcemap = []
@@ -227,4 +320,3 @@ if __name__ == "__main__":
         js_sourcemap = get_source_maps_list(url)
 
     handle_sourcemaps(url, output_dir, js_sourcemap, css_sourcemaps)
-    # TODO: clean up the function above
