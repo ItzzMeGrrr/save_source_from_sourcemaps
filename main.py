@@ -5,10 +5,16 @@ import re
 from json import JSONDecodeError
 from urllib.parse import urlparse
 
-import requests
-import sourcemap
-import validators
-from colorama import Fore
+try:
+    import requests
+    import sourcemap
+    import validators
+    from colorama import Fore
+except ModuleNotFoundError as mnf:
+    print(f"Module not found '{mnf.name}', please run:")
+    print(f"'pip install {mnf.name}' OR 'pip install -r requirements.txt'")
+    exit(1)
+
 
 INFO = Fore.CYAN
 WARN = Fore.YELLOW
