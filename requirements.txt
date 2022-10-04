@@ -1,5 +1,5 @@
 colorama
 validators
 requests
-sourcemap
+python-sourcemaps
 bs4

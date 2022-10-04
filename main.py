@@ -1,4 +1,5 @@
 import argparse
+from email.mime import base
 import enum
 import errno
 from msilib.schema import Error
@@ -42,7 +43,7 @@ parser.add_argument(
     help="Output the files to given path (default=./src_<domain>)",
     dest="path",
 )
-parser.add_argument("-q", "--quit", help="Suppress output", action="store_true")
+parser.add_argument("-q", "--quiet", help="Suppress output", action="store_true")
 parser.add_argument(
     "-s",
     "--styles",
@@ -63,7 +64,8 @@ def custom_print(text, color=OUT, quit_override=False, end="\n"):
         quit_override (`bool`, optional): Whether to print in quit mode. Defaults to `False`.
         end (`str`, optional): end param of the print fucntion. Defaults to "`\\n`".
     """
-    if not quit or quit_override:
+    global quit_mode
+    if not quit_mode or quit_override:
         # TODO: fix \t issue
         if color == OUT:
             text = f"[+] {text}"
@@ -161,7 +163,7 @@ def get_all_files(base_url):
                     css_files.append(file)
 
     if not js_files and not css_files:
-        custom_print(f"No file links found in response from '{url}'", ERR, True)
+        custom_print(f"No file links found in response from '{base_url}'", ERR, True)
         exit(errno.ENODATA)
     if styles:
         files_list = {"js": js_files, "css": css_files}
@@ -232,7 +234,9 @@ def get_source_maps_list(baseurl):
     js_sourcemap_paths = get_source_map_urls(baseurl, files.get("js"), "js")
     js_sourcemap_list = []
     for sm in js_sourcemap_paths:
-        js_sourcemap_list.append(SourceMap(baseurl, sm, type=SOURCEMAP_TYPE.JS))
+        js_sourcemap_list.append(
+            SourceMap(sm, js_sourcemap_paths.get(sm), type=SOURCEMAP_TYPE.JS)
+        )
 
     if styles:
         if verbose:
@@ -240,8 +244,10 @@ def get_source_maps_list(baseurl):
         css_sourcemap_paths = get_source_map_urls(baseurl, files.get("css"), "css")
         css_sourcemap_list = []
         for sm in css_sourcemap_paths:
-            css_sourcemap_list.append(SourceMap(baseurl, sm, type=SOURCEMAP_TYPE.CSS))
-        return js_sourcemaps, css_sourcemap_list
+            css_sourcemap_list.append(
+                SourceMap(sm, js_sourcemap_paths.get(sm), type=SOURCEMAP_TYPE.CSS)
+            )
+        return js_sourcemap_list, css_sourcemap_list
     return js_sourcemap_list
 
 
@@ -339,21 +345,58 @@ class SourceMap:
         self.path = path
         self.content = content
         if not isinstance(type, SOURCEMAP_TYPE):
-            raise Error(f"type has to be instance of SOURCEMAP_TYPE.")
+            raise Error(
+                f"type has to be instance of SOURCEMAP_TYPE.",
+            )
         else:
             self.type = type
 
-    def dump_content(outdir):
+    def dump_content(self, out_dir):
+        for source in self.content:
+            if verbose:
+                custom_print(f"\tSaving file {source}")
+            path = os.path.dirname(str(source).replace(":///", "/").replace("/./", "/"))
+            fileName = os.path.basename(path)
+
+            path = Path(f"{out_dir}{path}")
+            path.mkdir(parents=True, exist_ok=True)
+
+            with open(rf"{path}{fileName}", "w") as file:
+                file.write(str(self.content.get(source)))
+
+    def get_file_list() -> list:
+        # return files list in the content of the sourcemap
         pass
 
-    def get_files_list() -> list:
-        pass
+    def fetch_content(self, base_url) -> bool:
+        if not self.content:
+            req_url = ""
+            for path in self.path:
+                if self.base_url.startswith(base_url):
+                    if base_url.endswith("/"):
+                        if path.startswith("/"):
+                            req_url = f"{base_url[:-1]}{path}"
+                        else:
+                            req_url = f"{base_url}{path}"
+                    else:
+                        if path.startswith("/"):
+                            req_url = f"{base_url}{path}"
+                        else:
+                            req_url = f"{base_url}/{path}"
+
+                else:
+                    # TODO: determine url
+                    continue
+                if req_url:
+                    custom_print(f"fetching... {req_url}")
+                    res = requests.get(req_url).text
+                    self.content = sourcemaps.decode(res).sources_content
 
 
 if __name__ == "__main__":
     """Main function"""
     url = args.get("url")
-    quit = args.get("quit")
+    quit_mode = args.get("quiet")
     verbose = args.get("verbose")
     if args.get("path"):
         output_dir = args.get("path")
@@ -374,6 +417,18 @@ if __name__ == "__main__":
     else:
         js_sourcemaps = get_source_maps_list(url)
 
-    for smp in js_sourcemaps:
-        custom_print(f"{smp.base_url} {smp.path}")
+    if verbose:
+        custom_print(" ==== Fetching sourcemap contents ====")
+    for js_smp in js_sourcemaps:
+        js_smp.fetch_content(url)
+    if verbose:
+        custom_print(" ==== Dumping sourcemap contents ====")
+    for js_smp in js_sourcemaps:
+        js_smp.dump_content(output_dir)
+
+    # for smp in js_sourcemaps:
+    #     custom_print(f"{smp.base_url}")
+    #     for path in smp.path:
+    #         custom_print(f"\t{path}", INFO)
+
     # handle_sourcemaps(url, output_dir, js_sourcemaps, css_sourcemaps)
