@@ -1,4 +1,4 @@
-# Save source from source maps
+# Save source code from source maps
 
 ## Introduction
 
