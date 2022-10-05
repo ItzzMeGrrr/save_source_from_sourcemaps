@@ -50,7 +50,7 @@ parser.add_argument(
     help="Download stylesheets (CSS) as well (default=off)",
     action="store_true",
 )
-parser.add_argument("-u", "--url", help="URL of the site", required=True)
+parser.add_argument("-u", "--url", help="URL of the website", required=True)
 parser.add_argument("-v", "--verbose", help="Print verbose output", action="store_true")
 args = parser.parse_args().__dict__
 
@@ -60,9 +60,9 @@ def custom_print(text, color=OUT, quit_override=False, end="\n"):
 
     Args:
         text (`str`): the text to print
-        color (`color constant`, optional): color of the `text`. Defaults to `OUT`.
+        color (`const`, optional): the color of the `text`. Defaults to `OUT`.
         quit_override (`bool`, optional): Whether to print in quit mode. Defaults to `False`.
-        end (`str`, optional): end param of the print fucntion. Defaults to "`\\n`".
+        end (`str`, optional): end param of the print function. Defaults to "`\\n`".
     """
     global quit_mode
     if not quit_mode or quit_override:
@@ -82,7 +82,7 @@ def validate_url(url):
     """Validate `url`
 
     Args:
-        `url` (`str`): the url
+        `url` (`str`): the URL
     """
     if not validators.url(url):
         custom_print(f"'{url}' is not a valid url", ERR, True)
@@ -93,7 +93,7 @@ def validate_dir(dir):
     """validate given directory
 
     Args:
-        `dir` (`str`): directory
+        `dir` (`str`): the to validate directory
     """
     if not dir.endswith("/"):
         dir = f"{dir}/"
@@ -108,13 +108,13 @@ def validate_dir(dir):
 
 
 def get_all_files(base_url):
-    """Get js and css file dict from html response
+    """Get JS and CSS file dict from the response
 
     Args:
-        `res` (`str`): html response text
+        `res` (`str`): the HTML response
 
     Returns:
-        `dict`: js and css file dict with respective keys
+        `dict`: JS and CSS file dict with respective keys
     """
     # TODO: also try to get all script, link tags links using bs4
     # TODO: because some links might be resource file but not have extension
@@ -178,12 +178,12 @@ def get_source_map_urls(base_url, files, ext):
     """return all sourcemap urls from `files` of type `ext`
 
     Args:
-        base_url (`str`): the url
-        files (`list`): list of file url to find sourcemap in
-        ext (`str`): extension of the file to find sourcemap for
+        `base_url` (`str`): the url
+        `files` (`list`): list of file URLs, to find source maps in
+        `ext` (`str`): extension of the file, to find source maps for
 
     Returns:
-        `list`: list of found sourcemap urls
+        `list`: list of found source map URLs
     """
     found_sourcemaps = {}
     for file in files:
@@ -196,23 +196,11 @@ def get_source_map_urls(base_url, files, ext):
         ):
             if verbose:
                 custom_print(f"\tFound map: {match}")
-            url = base_url
             if not file.startswith(base_url):
                 # TODO: fix this file on different server issue
                 url = f"http://{urlparse(file).hostname}"
                 # TODO: determine path of the file dynamically and append found sourcemap url to the base url
             matches.append(match)
-            """if not match.startswith("http"):
-                if match.startswith("/"):
-                    if url.endswith("/"):
-                        match = f"{url[:-1]}{match}"
-                    else:
-                        match = f"{url}{match}"
-                else:
-                    if url.endswith("/"):
-                        match = f"{url}{match}"
-                    else:
-                        match = f"{url}/{match}" """
         found_sourcemaps[file] = matches
     return found_sourcemaps
 
@@ -235,7 +223,7 @@ def get_source_maps_list(baseurl):
     js_sourcemap_list = []
     for sm in js_sourcemap_paths:
         js_sourcemap_list.append(
-            SourceMap(sm, js_sourcemap_paths.get(sm), type=SOURCEMAP_TYPE.JS)
+            SourceMap(sm, baseurl, js_sourcemap_paths.get(sm), type=SOURCEMAP_TYPE.JS)
         )
 
     if styles:
@@ -245,14 +233,16 @@ def get_source_maps_list(baseurl):
         css_sourcemap_list = []
         for sm in css_sourcemap_paths:
             css_sourcemap_list.append(
-                SourceMap(sm, js_sourcemap_paths.get(sm), type=SOURCEMAP_TYPE.CSS)
+                SourceMap(
+                    sm, baseurl, css_sourcemap_paths.get(sm), type=SOURCEMAP_TYPE.CSS
+                )
             )
         return js_sourcemap_list, css_sourcemap_list
     return js_sourcemap_list
 
 
 def generate_output_path(url):
-    """Returns path generated based on given `url`
+    """Returns path generated based on given `URL`
 
     Args:
         `url` (`str`): the URL
@@ -263,84 +253,23 @@ def generate_output_path(url):
     return f"src_{urlparse(url).netloc}"
 
 
-# def get_json_res(sm_path, base_url):
-#     """fetches and returns json response from `sm_path`
-
-#     Args:
-#         `sm_path` (`str`): path/url to sourcemap
-#         `base_url` (`str`): the base url
-
-#     Returns:
-#         `json`: json content from `sm_path`
-#     """
-#     if not str(sm_path).startswith(
-#         "http"
-#     ):  # it might start with http when its not relative path (not stored on the same server)
-#         custom_print(f"{sm_path}, {base_url}", ERR)
-#         res = requests.get(base_url + sm_path)
-#         res.json()
-#         sm_json = res.text
-#     else:
-#         res = requests.get(sm_path)
-#         res.json()
-#         sm_json = res.text
-#     return sm_json
-
-
-# def dump_sm_json(sm, out_dir):
-#     """Takes sourcemap json and dumps the containing files into given directory
-
-#     Args:
-#         `sourcemap` (`json`): sourcemap json content
-#         `out_dir` (`str`): output path
-#     """
-#     source_content = sourcemaps.decode(sm).sources_content
-#     for source in source_content:
-#         if verbose:
-#             custom_print(f"\tSaving file {source}")
-#         fileName = os.path.basename(source)
-#         path = os.path.dirname(str(source).replace(":///", "/").replace("/./", "/"))
-
-#         path = Path(f"{out_dir}{path}")
-#         path.mkdir(parents=True, exist_ok=True)
-
-#         with open(rf"{path}{fileName}", "w") as file:
-#             file.write(str(source_content.get(source), encoding="utf-8"))
-
-
-# def handle_sourcemaps(base_url, out_dir, js_sourcemaps, css_sourcemaps):
-#     """Takes sourcemaps list and dumps files into appropriate directory structure
-
-#     Args:
-#         `base_url` (`str`): the URL
-#         `out_dir` (`str`): the output dir
-#         `js_sourcemaps` (`list`): js sourcemaps list
-#         `css_sourcemaps` (`list`): css sourcemaps list
-
-#     Returns:
-#         `None`: `None`
-#     """
-#     for js_sm in js_sourcemaps:
-#         try:
-#             sm_json = get_json_res(js_sm, base_url)
-#             if verbose:
-#                 custom_print(f"===== Dumping {js_sm} =====")
-#             dump_sm_json(sm_json, out_dir)
-#         except JSONDecodeError:
-#             custom_print(f"'{js_sm}' does not seem to return JSON response", ERR)
-#     if styles:
-#         for css_sm in css_sourcemaps:
-#             try:
-#                 sm_json = get_json_res(css_sm, base_url)
-#                 if verbose:
-#                     custom_print(f"===== Dumping {css_sm} =====")
-#                 dump_sm_json(sm_json, out_dir)
-#             except JSONDecodeError:
-#                 custom_print(f"'{css_sm}' does not seem to return JSON response", ERR)
-
-
 class SourceMap:
-    def __init__(self, base_url, path, content="", type=SOURCEMAP_TYPE.JS) -> None:
+    def __init__(
+        self, file_url, base_url, path, content="", type=SOURCEMAP_TYPE.JS
+    ) -> None:
+        """class wrapper for handling source maps
+
+        Args:
+            `file_url` (`str`): Url of the file where this source map was found
+            `base_url` (`str`): the base URL
+            `path` (`str`): the path of the source map
+            `content` (`JSON`, optional): source map content. Defaults to "".
+            `type` (`SOURCEMAP_TYPE`, optional): type of the source map. Defaults to SOURCEMAP_TYPE.JS.
+
+        Raises:
+            Error: invalid SOURCEMAP_TYPE
+        """
+        self.file_url = file_url
         self.base_url = base_url
         self.path = path
         self.content = content
@@ -352,60 +281,70 @@ class SourceMap:
             self.type = type
 
     def dump_content(self, out_dir):
+        """Save files in source map content to given `out_dir`
+
+        Args:
+            out_dir (`str`): the output directory
+        """
         for source in self.content:
             if verbose:
                 custom_print(f"\tSaving file {source}")
             fileName = os.path.basename(source)
-            path = os.path.dirname(str(source).replace(":///", "/").replace("/./", "/"))
+            path = os.path.dirname(urlparse(source).path)
 
             path = Path(f"{out_dir}/{path}")
             path.mkdir(parents=True, exist_ok=True)
-
             with open(f"{path}\{fileName}", "w", encoding="utf-8") as file:
                 file.write(self.content.get(source))
 
-    def get_file_list(self) -> list:
-        for source in self.content:
-            fileName = os.path.basename(source)
-            path = os.path.dirname(str(source).replace(":///", "/").replace("/./", "/"))
+    def get_proper_url(self, path):
+        """Returns a valid url
 
-            path = Path(f"{path}")
-            path.mkdir(parents=True, exist_ok=True)
+        Args:
+            `path` (`str`): path for which url is needed
 
-            with open(f"{path}\{fileName}", "w") as file:
-                file.write(self.content.get(source))
-
-    def fetch_content(self, base_url) -> bool:
-        if not self.content:
-            req_url = ""
-            for path in self.path:
-                if self.base_url.startswith(base_url):
-                    if base_url.endswith("/"):
-                        if path.startswith("/"):
-                            req_url = f"{base_url[:-1]}{path}"
-                        else:
-                            req_url = f"{base_url}{path}"
-                    else:
-                        if path.startswith("/"):
-                            req_url = f"{base_url}{path}"
-                        else:
-                            req_url = f"{base_url}/{path}"
-
+        Returns:
+            `str`: the valid URL for the `path`
+        """
+        if self.file_url.startswith(self.base_url):
+            if self.base_url.endswith("/"):
+                if path.startswith("/"):
+                    req_url = f"{self.base_url[:-1]}{path}"
                 else:
-                    if path.startswith("/"):
-                        first_part = path.split("/")[1]
-                    else:
-                        first_part = path.split("/")[0]
-                    start_index = str(base_url).find(first_part)
-                    req_url = self.base_url[:start_index] + path
-                    custom_print(
-                        f"{base_url} {path} {req_url} {start_index} {self.base_url} {first_part}"
-                    )
-                    exit(0)
+                    req_url = f"{self.base_url}{path}"
+            else:
+                if path.startswith("/"):
+                    req_url = f"{self.base_url}{path}"
+                else:
+                    req_url = f"{self.base_url}/{path}"
+
+        else:
+            if path.startswith("/"):
+                first_part = path.split("/")[1]
+            else:
+                first_part = path.split("/")[0]
+            start_index = str(self.file_url).find(first_part)
+            req_url = self.file_url[:start_index] + path
+
+        return req_url
+
+    def fetch_content(self):
+        """Fetches content of the sourcemap and fills the `self.content`"""
+        if not self.content:
+            for path in self.path:
+                req_url = self.get_proper_url(path)
                 if req_url:
-                    custom_print(f"fetching... {req_url}")
+                    if verbose:
+                        custom_print(f"Fetching... {req_url}")
                     res = requests.get(req_url).text
-                    self.content = sourcemaps.decode(res).sources_content
+                    try:
+                        self.content = sourcemaps.decode(res).sources_content
+                    except JSONDecodeError as e:
+                        custom_print(
+                            f"'{req_url}' does not seem to return json response", ERR
+                        )
+                else:
+                    custom_print(f"Couldn't get proper path of the sourcemap", ERR)
 
 
 if __name__ == "__main__":
@@ -413,16 +352,16 @@ if __name__ == "__main__":
     url = args.get("url")
     quit_mode = args.get("quiet")
     verbose = args.get("verbose")
-    if args.get("path"):
-        output_dir = args.get("path")
-    else:
-        output_dir = generate_output_path(url)
-
     styles = args.get("styles")
+    if not args.get("path"):
+        args["path"] = generate_output_path(url)
+    output_dir = args.get("path")
+
     if verbose:
         custom_print("Using following options: ", INFO)
         for arg in args:
             custom_print(f"{arg}: {args.get(arg)}", INFO)
+
     validate_url(url)
     validate_dir(output_dir)
     js_sourcemaps = []
@@ -433,20 +372,20 @@ if __name__ == "__main__":
         js_sourcemaps = get_source_maps_list(url)
 
     if verbose:
-        custom_print(" ==== Fetching sourcemap contents ====")
+        custom_print(" ==== Fetching JS sourcemap contents ====")
     for js_smp in js_sourcemaps:
-        js_smp.fetch_content(url)
+        js_smp.fetch_content()
     if verbose:
-        custom_print(" ==== Dumping sourcemap contents ====")
+        custom_print(" ==== Dumping JS sourcemap contents ====")
     for js_smp in js_sourcemaps:
         js_smp.dump_content(output_dir)
 
     if styles:
         if verbose:
-            custom_print(" ==== Fetching sourcemap contents ====")
+            custom_print(" ==== Fetching CSS sourcemap contents ====")
         for css_smp in css_sourcemaps:
-            css_smp.fetch_content(url)
+            css_smp.fetch_content()
         if verbose:
-            custom_print(" ==== Dumping sourcemap contents ====")
+            custom_print(" ==== Dumping CSS sourcemap contents ====")
         for css_smp in css_sourcemaps:
             css_smp.dump_content(output_dir)
