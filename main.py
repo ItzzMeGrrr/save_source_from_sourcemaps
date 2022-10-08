@@ -197,9 +197,7 @@ def get_source_map_urls(base_url, files, ext):
             if verbose:
                 custom_print(f"\tFound map: {match}")
             if not file.startswith(base_url):
-                # TODO: fix this file on different server issue
                 url = f"http://{urlparse(file).hostname}"
-                # TODO: determine path of the file dynamically and append found sourcemap url to the base url
             matches.append(match)
         found_sourcemaps[file] = matches
     return found_sourcemaps
@@ -317,7 +315,6 @@ class SourceMap:
                     req_url = f"{self.base_url}{path}"
                 else:
                     req_url = f"{self.base_url}/{path}"
-
         else:
             if path.startswith("/"):
                 first_part = path.split("/")[1]
@@ -332,7 +329,11 @@ class SourceMap:
         """Fetches content of the sourcemap and fills the `self.content`"""
         if not self.content:
             for path in self.path:
-                req_url = self.get_proper_url(path)
+                file_path = "/".join(urlparse(self.file_url).path.split("/")[:-1])
+                if path.startswith(file_path):
+                    req_url = self.get_proper_url(path)
+                else:
+                    req_url = self.get_proper_url(f"{file_path}/{path}")
                 if req_url:
                     if verbose:
                         custom_print(f"Fetching... {req_url}")
@@ -343,6 +344,8 @@ class SourceMap:
                         custom_print(
                             f"'{req_url}' does not seem to return json response", ERR
                         )
+                        custom_print(f"{self.file_url} {self.base_url} {self.path}")
+
                 else:
                     custom_print(f"Couldn't get proper path of the sourcemap", ERR)
 
@@ -366,6 +369,8 @@ if __name__ == "__main__":
     validate_dir(output_dir)
     js_sourcemaps = []
     css_sourcemaps = []
+    if not verbose:
+        custom_print("Finding sourcemaps...")
     if styles:
         js_sourcemaps, css_sourcemaps = get_source_maps_list(url)
     else:
@@ -373,19 +378,28 @@ if __name__ == "__main__":
 
     if verbose:
         custom_print(" ==== Fetching JS sourcemap contents ====")
+    else:
+        custom_print("Fetching JS sourcemaps...")
     for js_smp in js_sourcemaps:
         js_smp.fetch_content()
     if verbose:
         custom_print(" ==== Dumping JS sourcemap contents ====")
+    else:
+        custom_print("Dumping JS sourcemaps...")
     for js_smp in js_sourcemaps:
         js_smp.dump_content(output_dir)
 
     if styles:
         if verbose:
             custom_print(" ==== Fetching CSS sourcemap contents ====")
+        else:
+            custom_print("Fetching CSS sourcemaps...")
         for css_smp in css_sourcemaps:
             css_smp.fetch_content()
         if verbose:
             custom_print(" ==== Dumping CSS sourcemap contents ====")
+        else:
+            custom_print("Dumping CSS sourcemaps...")
         for css_smp in css_sourcemaps:
             css_smp.dump_content(output_dir)
+    custom_print("DONE!", INFO)

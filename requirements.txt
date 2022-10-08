@@ -2,4 +2,4 @@ colorama
 validators
 requests
 python-sourcemaps
-bs4
+# bs4
