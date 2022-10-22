@@ -124,12 +124,12 @@ def get_all_files(base_url):
     js_files = []
     css_files = []
     if verbose:
-        custom_print("==== Found JS/CSS File ====", INFO)
+        custom_print(f"==== Found {WARN}JS{OUT}/{INFO}CSS{OUT} File ====")
     for line in res.split("\n"):
         for file in re.findall('"([\-./:@a-zA-Z0-9]*\.js)"', line):
             if file not in js_files:
                 if verbose:
-                    custom_print(f"{file}")
+                    custom_print(f"{file}", WARN)
                 if not file.startswith("http"):
                     if file.startswith("/"):
                         if base_url.endswith("/"):
@@ -147,7 +147,7 @@ def get_all_files(base_url):
             for file in re.findall('"([\-./:@a-zA-Z0-9]*\.css)"', line):
                 if file not in css_files:
                     if verbose:
-                        custom_print(f"{file}")
+                        custom_print(f"{file}", INFO)
                     if not file.startswith("http"):
                         if file.startswith("/"):
                             if base_url.endswith("/"):
@@ -188,17 +188,20 @@ def get_source_map_urls(base_url, files, ext):
     found_sourcemaps = {}
     for file in files:
         if verbose:
-            custom_print(f"Finding sourcemaps in: {file}", INFO)
+            custom_print(
+                f"Finding sourcemaps in: {INFO if ext == 'css' else WARN}{file}"
+            )
         file_content = requests.get(file).text
         matches = []
         for match in re.findall(
             f"//[#@] sourceMappingURL=(.*\.{ext}\.map)", file_content
         ):
             if verbose:
-                custom_print(f"\tFound map: {match}")
+                custom_print(f"\tFound map: {INFO if ext == 'CSS' else WARN}{match}")
             if not file.startswith(base_url):
                 url = f"http://{urlparse(file).hostname}"
-            matches.append(match)
+            if match not in matches:
+                matches.append(match)
         found_sourcemaps[file] = matches
     return found_sourcemaps
 
@@ -216,7 +219,7 @@ def get_source_maps_list(baseurl):
     global verbose
     files = get_all_files(baseurl)
     if verbose:
-        custom_print("==== Found JS sourcemaps ====", INFO)
+        custom_print(f"==== Found {WARN}JS{OUT} sourcemaps ====")
     js_sourcemap_paths = get_source_map_urls(baseurl, files.get("js"), "js")
     js_sourcemap_list = []
     for sm in js_sourcemap_paths:
@@ -226,7 +229,7 @@ def get_source_maps_list(baseurl):
 
     if styles:
         if verbose:
-            custom_print("==== Found CSS sourcemaps ====", INFO)
+            custom_print(f"==== Found {INFO}CSS{OUT} sourcemaps ====")
         css_sourcemap_paths = get_source_map_urls(baseurl, files.get("css"), "css")
         css_sourcemap_list = []
         for sm in css_sourcemap_paths:
@@ -336,7 +339,9 @@ class SourceMap:
                     req_url = self.get_proper_url(f"{file_path}/{path}")
                 if req_url:
                     if verbose:
-                        custom_print(f"Fetching... {req_url}")
+                        custom_print(
+                            f"Fetching... {WARN if self.type == SOURCEMAP_TYPE.JS else INFO}{req_url}"
+                        )
                     res = requests.get(req_url).text
                     try:
                         self.content = sourcemaps.decode(res).sources_content
@@ -344,8 +349,6 @@ class SourceMap:
                         custom_print(
                             f"'{req_url}' does not seem to return json response", ERR
                         )
-                        custom_print(f"{self.file_url} {self.base_url} {self.path}")
-
                 else:
                     custom_print(f"Couldn't get proper path of the sourcemap", ERR)
 
@@ -376,30 +379,46 @@ if __name__ == "__main__":
     else:
         js_sourcemaps = get_source_maps_list(url)
 
-    if verbose:
-        custom_print(" ==== Fetching JS sourcemap contents ====")
+    if js_sourcemaps.__len__() > 0:
+        if verbose:
+            custom_print(f" ==== Fetching {WARN}JS{OUT} sourcemap contents ====")
+        else:
+            custom_print(f"Fetching {WARN}JS{OUT} sourcemaps...")
+        for js_smp in js_sourcemaps:
+            js_smp.fetch_content()
+        if verbose:
+            custom_print(f" ==== Dumping {WARN}JS{OUT} sourcemap contents ====")
+        else:
+            custom_print(f"Dumping {WARN}JS{OUT} sourcemaps...")
+        for js_smp in js_sourcemaps:
+            js_smp.dump_content(output_dir)
     else:
-        custom_print("Fetching JS sourcemaps...")
-    for js_smp in js_sourcemaps:
-        js_smp.fetch_content()
-    if verbose:
-        custom_print(" ==== Dumping JS sourcemap contents ====")
-    else:
-        custom_print("Dumping JS sourcemaps...")
-    for js_smp in js_sourcemaps:
-        js_smp.dump_content(output_dir)
-
+        if verbose:
+            custom_print(f" ==== No  {WARN}JS{ERR} sourcemaps were found! ====", ERR)
+        else:
+            custom_print(f"No {WARN}JS{ERR} sourcemaps were found!", ERR)
     if styles:
-        if verbose:
-            custom_print(" ==== Fetching CSS sourcemap contents ====")
+        if css_sourcemaps.__len__() > 0:
+            if verbose:
+                custom_print(f" ==== Fetching {INFO}CSS{OUT} sourcemap contents ====")
+            else:
+                custom_print(f"Fetching {INFO}CSS{OUT} sourcemaps...")
+            for css_smp in css_sourcemaps:
+                css_smp.fetch_content()
+            if verbose:
+                custom_print(f" ==== Dumping {INFO}CSS{OUT} sourcemap contents ====")
+            else:
+                custom_print(f"Dumping {INFO}CSS{OUT} sourcemaps...")
+            for css_smp in css_sourcemaps:
+                css_smp.dump_content(output_dir)
         else:
-            custom_print("Fetching CSS sourcemaps...")
-        for css_smp in css_sourcemaps:
-            css_smp.fetch_content()
-        if verbose:
-            custom_print(" ==== Dumping CSS sourcemap contents ====")
+            if verbose:
+                custom_print(
+                    f" ==== No {INFO}CSS{ERR} sourcemaps were found! ====", ERR
+                )
+            else:
+                custom_print(f"No {INFO}CSS{ERR} sourcemaps were found!", ERR)
+        if os.path.exists(output_dir):
+            custom_print("RESULT: Sources downloaded successfully!")
         else:
-            custom_print("Dumping CSS sourcemaps...")
-        for css_smp in css_sourcemaps:
-            css_smp.dump_content(output_dir)
-    custom_print("DONE!", INFO)
+            custom_print("RESULT: Sources were not downloaded!", ERR)
